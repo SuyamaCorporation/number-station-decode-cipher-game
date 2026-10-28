@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>乱数局 数字解読 暗号ゲーム</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-green-400 min-h-screen font-mono">
+<div class="max-w-3xl mx-auto p-4">
+  <h1 class="text-3xl font-bold text-center mb-2 text-green-300">📻 乱数局 暗号解読</h1>
+  <p class="text-center text-green-600 mb-6 text-sm">NUMBER STATION CIPHER DECODE</p>
+
+  <!-- Settings -->
+  <div id="setupScreen" class="bg-gray-800 rounded-lg p-6 mb-4">
+    <div class="grid grid-cols-2 gap-4 mb-4">
+      <div>
+        <label class="block text-sm mb-1" for="diffSelect">難易度</label>
+        <select id="diffSelect" aria-label="難易度選択" class="w-full bg-gray-700 border border-green-700 rounded p-2 text-green-300">
+          <option value="easy">初級 (シーザー シフト3)</option>
+          <option value="medium" selected>中級 (シフトランダム)</option>
+          <option value="hard">上級 (多表式ヴィジュネル)</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm mb-1" for="modeSelect">モード</label>
+        <select id="modeSelect" aria-label="モード選択" class="w-full bg-gray-700 border border-green-700 rounded p-2 text-green-300">
+          <option value="normal">通常モード</option>
+          <option value="timed">制限時間 60秒</option>
+        </select>
+      </div>
+    </div>
+    <button id="startBtn" aria-label="ゲームを開始" class="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-lg transition">
+      ▶ 受信開始
+    </button>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="gameScreen" class="hidden">
+    <div class="flex justify-between items-center mb-3">
+      <div class="text-sm">スコア: <span id="scoreDisp" class="text-yellow-400 font-bold">0</span></div>
+      <div id="timerBox" class="hidden text-sm">残り: <span id="timerDisp" class="text-red-400 font-bold">60</span>秒</div>
+      <div class="text-sm">問題: <span id="qNumDisp" class="text-cyan-400">1</span></div>
+    </div>
+
+    <div class="bg-black border border-green-700 rounded-lg p-4 mb-4">
+      <div class="text-xs text-green-600 mb-2">■ 受信メッセージ ■</div>
+      <div id="cipherText" class="text-xl tracking-widest text-green-300 break-all min-h-8"></div>
+      <div class="mt-2 text-xs text-green-700" id="cipherInfo"></div>
+    </div>
+
+    <!-- Cipher Table -->
+    <div class="bg-gray-800 rounded-lg p-3 mb-4">
+      <div class="text-xs text-green-600 mb-2">解読テーブル (暗号文 → 解読文字)</div>
+      <div id="cipherTable" class="grid grid-cols-13 gap-1 text-xs"></div>
+    </div>
+
+    <div class="mb-4">
+      <label class="block text-sm mb-1" for="answerInput">解読結果を入力（スペース区切りの英単語）:</label>
+      <input type="text" id="answerInput" aria-label="解読結果を入力"
+        class="w-full bg-gray-800 border border-green-700 rounded p-3 text-green-300 focus:outline-none focus:border-green-400 uppercase"
+        placeholder="例: HELLO WORLD">
+    </div>
+
+    <div class="flex gap-3 mb-4">
+      <button id="submitBtn" aria-label="解答する" class="flex-1 bg-green-700 hover:bg-green-600 text-white font-bold py-2 rounded transition">
+        解答
+      </button>
+      <button id="hintBtn" aria-label="ヒントを使う (-5点)" class="px-4 bg-yellow-700 hover:bg-yellow-600 text-white font-bold py-2 rounded transition">
+        ヒント (-5点)
+      </button>
+      <button id="skipBtn" aria-label="スキップ (-10点)" class="px-4 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 rounded transition">
+        スキップ
+      </button>
+    </div>
+
+    <div id="feedback" class="hidden bg-gray-800 rounded-lg p-4 mb-4"></div>
+    <div id="hintReveal" class="text-yellow-400 text-sm mb-3"></div>
+  </div>
+
+  <!-- Result Screen -->
+  <div id="resultScreen" class="hidden bg-gray-800 rounded-lg p-6 text-center">
+    <div class="text-4xl mb-2">📡</div>
+    <h2 class="text-2xl font-bold text-green-300 mb-2">セッション終了</h2>
+    <div id="finalScore" class="text-5xl font-bold text-yellow-400 mb-4"></div>
+    <div id="resultDetail" class="text-sm text-green-600 mb-4"></div>
+    <div class="text-sm text-green-600 mb-4">最高スコア: <span id="bestScore" class="text-yellow-300 font-bold"></span></div>
+    <button id="restartBtn" aria-label="もう一度プレイ" class="bg-green-700 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-lg transition">
+      再受信
+    </button>
+  </div>
+</div>
+
+<script>
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+const MESSAGES = [
+  "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG",
+  "MEET ME AT MIDNIGHT BY THE BRIDGE",
+  "OPERATION DAWN HAS BEEN CONFIRMED",
+  "THE PACKAGE ARRIVES ON TUESDAY MORNING",
+  "ALL AGENTS MUST REPORT TO BASE NOW",
+  "THE EAGLE HAS LANDED SAFELY HERE",
+  "PROCEED TO THE RENDEZVOUS POINT ALPHA",
+  "ABORT MISSION AND RETURN TO BASE",
+  "THE CODE WORD IS PURPLE SUNRISE",
+  "STANDBY FOR FURTHER INSTRUCTIONS AGENT",
+];
+
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+function caesarEncrypt(text, shift) {
+  return text.split('').map(c => {
+    if (c === ' ') return ' ';
+    const idx = ALPHABET.indexOf(c);
+    return idx >= 0 ? ALPHABET[(idx + shift) % 26] : c;
+  }).join('');
+}
+
+function atbashEncrypt(text) {
+  return text.split('').map(c => {
+    if (c === ' ') return ' ';
+    const idx = ALPHABET.indexOf(c);
+    return idx >= 0 ? ALPHABET[25 - idx] : c;
+  }).join('');
+}
+
+function vigenereEncrypt(text, key) {
+  let ki = 0;
+  return text.split('').map(c => {
+    if (c === ' ') return ' ';
+    const idx = ALPHABET.indexOf(c);
+    if (idx < 0) return c;
+    const shift = ALPHABET.indexOf(key[ki % key.length]);
+    ki++;
+    return ALPHABET[(idx + shift) % 26];
+  }).join('');
+}
+
+let state = {
+  score: 0,
+  qNum: 0,
+  diff: 'medium',
+  mode: 'normal',
+  plainText: '',
+  cipherText: '',
+  cipherInfo: '',
+  key: 0,
+  vigenereKey: '',
+  hintsUsed: 0,
+  revealedChars: new Set(),
+  timerInterval: null,
+  timeLeft: 60,
+  correct: 0,
+  total: 0,
+};
+
+function generateQuestion() {
+  const msg = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
+  state.plainText = msg;
+  state.revealedChars = new Set();
+  state.hintsUsed = 0;
+
+  if (state.diff === 'easy') {
+    state.key = 3;
+    state.cipherText = caesarEncrypt(msg, 3);
+    state.cipherInfo = 'シーザー暗号 シフト3';
+    state.vigenereKey = '';
+  } else if (state.diff === 'medium') {
+    const shift = Math.floor(Math.random() * 24) + 1;
+    state.key = shift;
+    // 50% caesar, 50% atbash
+    if (Math.random() < 0.5) {
+      state.cipherText = caesarEncrypt(msg, shift);
+      state.cipherInfo = `シーザー暗号 (シフト数は不明)`;
+    } else {
+      state.cipherText = atbashEncrypt(msg);
+      state.cipherInfo = 'アトバシュ暗号 (A↔Z方式)';
+      state.key = -1; // atbash marker
+    }
+    state.vigenereKey = '';
+  } else {
+    const keys = ['KEY', 'CODE', 'ALPHA', 'GHOST', 'SIGMA'];
+    const vk = keys[Math.floor(Math.random() * keys.length)];
+    state.vigenereKey = vk;
+    state.cipherText = vigenereEncrypt(msg, vk);
+    state.cipherInfo = `ヴィジュネル暗号 (鍵: ${escapeHtml(vk.length)}文字)`;
+  }
+
+  document.getElementById('cipherText').textContent = state.cipherText;
+  document.getElementById('cipherInfo').textContent = state.cipherInfo;
+  document.getElementById('answerInput').value = '';
+  document.getElementById('feedback').classList.add('hidden');
+  document.getElementById('hintReveal').textContent = '';
+  renderCipherTable();
+}
+
+function renderCipherTable() {
+  const ct = document.getElementById('cipherTable');
+  ct.innerHTML = '';
+  // Show partial decoding table based on hints
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  letters.forEach(l => {
+    const cell = document.createElement('div');
+    cell.className = 'bg-gray-700 p-1 text-center rounded';
+    if (state.revealedChars.has(l)) {
+      const plain = decipherChar(l);
+      cell.innerHTML = `<div class="text-green-400">${escapeHtml(l)}</div><div class="text-yellow-300">${escapeHtml(plain)}</div>`;
+    } else {
+      cell.innerHTML = `<div class="text-green-600">${escapeHtml(l)}</div><div class="text-gray-600">?</div>`;
+    }
+    ct.appendChild(cell);
+  });
+}
+
+function decipherChar(c) {
+  if (!ALPHABET.includes(c)) return c;
+  if (state.key === -1) {
+    // atbash
+    return ALPHABET[25 - ALPHABET.indexOf(c)];
+  } else if (state.vigenereKey) {
+    return '?'; // vigenere too complex for table
+  } else {
+    const idx = ALPHABET.indexOf(c);
+    return ALPHABET[(idx - state.key + 26) % 26];
+  }
+}
+
+function useHint() {
+  const cipherLetters = [...new Set(state.cipherText.replace(/ /g, '').split(''))];
+  const unrevealed = cipherLetters.filter(c => !state.revealedChars.has(c));
+  if (unrevealed.length === 0) {
+    document.getElementById('hintReveal').textContent = '全ての文字が解読済みです';
+    return;
+  }
+  state.score = Math.max(0, state.score - 5);
+  document.getElementById('scoreDisp').textContent = state.score;
+  const pick = unrevealed[Math.floor(Math.random() * unrevealed.length)];
+  state.revealedChars.add(pick);
+  state.hintsUsed++;
+  renderCipherTable();
+  const plain = decipherChar(pick);
+  document.getElementById('hintReveal').textContent = `ヒント: 暗号文 "${pick}" = 平文 "${plain === '?' ? '(多表式のため個別解読不可)' : plain}"`;
+}
+
+function checkAnswer() {
+  const ans = document.getElementById('answerInput').value.trim().toUpperCase();
+  const fb = document.getElementById('feedback');
+  fb.classList.remove('hidden');
+  state.total++;
+
+  if (ans === state.plainText) {
+    const basePoints = state.diff === 'easy' ? 50 : state.diff === 'medium' ? 100 : 150;
+    const bonus = Math.max(0, basePoints - state.hintsUsed * 5);
+    state.score += bonus;
+    state.correct++;
+    document.getElementById('scoreDisp').textContent = state.score;
+    fb.className = 'bg-green-900 border border-green-500 rounded-lg p-4 mb-4';
+    fb.innerHTML = `<div class="font-bold text-green-300">✔ 解読成功！ +${bonus}点</div><div class="text-sm mt-1">正解: ${escapeHtml(state.plainText)}</div>`;
+    state.qNum++;
+    document.getElementById('qNumDisp').textContent = state.qNum + 1;
+    setTimeout(() => { if (state.mode === 'timed' && state.timeLeft > 0) generateQuestion(); else if (state.mode !== 'timed') generateQuestion(); }, 1500);
+  } else {
+    fb.className = 'bg-red-900 border border-red-500 rounded-lg p-4 mb-4';
+    fb.innerHTML = `<div class="font-bold text-red-300">✗ 解読失敗</div><div class="text-sm mt-1">あなたの答え: ${escapeHtml(ans)}</div>`;
+  }
+}
+
+function skip() {
+  state.score = Math.max(0, state.score - 10);
+  state.total++;
+  document.getElementById('scoreDisp').textContent = state.score;
+  const fb = document.getElementById('feedback');
+  fb.classList.remove('hidden');
+  fb.className = 'bg-gray-700 border border-gray-500 rounded-lg p-4 mb-4';
+  fb.innerHTML = `<div class="text-gray-300">スキップ -10点</div><div class="text-sm mt-1">正解: ${escapeHtml(state.plainText)}</div>`;
+  state.qNum++;
+  setTimeout(() => generateQuestion(), 1500);
+}
+
+function startTimer() {
+  state.timeLeft = 60;
+  document.getElementById('timerDisp').textContent = 60;
+  document.getElementById('timerBox').classList.remove('hidden');
+  state.timerInterval = setInterval(() => {
+    state.timeLeft--;
+    document.getElementById('timerDisp').textContent = state.timeLeft;
+    if (state.timeLeft <= 0) {
+      clearInterval(state.timerInterval);
+      endGame();
+    }
+  }, 1000);
+}
+
+function endGame() {
+  document.getElementById('gameScreen').classList.add('hidden');
+  document.getElementById('resultScreen').classList.remove('hidden');
+  document.getElementById('finalScore').textContent = state.score + '点';
+  document.getElementById('resultDetail').textContent = `${state.total}問中 ${state.correct}問正解`;
+
+  const best = parseInt(localStorage.getItem('cipher_best') || '0');
+  if (state.score > best) localStorage.setItem('cipher_best', state.score);
+  document.getElementById('bestScore').textContent = Math.max(best, state.score) + '点';
+}
+
+document.getElementById('startBtn').addEventListener('click', () => {
+  state.diff = document.getElementById('diffSelect').value;
+  state.mode = document.getElementById('modeSelect').value;
+  state.score = 0;
+  state.qNum = 0;
+  state.correct = 0;
+  state.total = 0;
+  document.getElementById('scoreDisp').textContent = 0;
+  document.getElementById('qNumDisp').textContent = 1;
+  document.getElementById('setupScreen').classList.add('hidden');
+  document.getElementById('resultScreen').classList.add('hidden');
+  document.getElementById('gameScreen').classList.remove('hidden');
+  document.getElementById('timerBox').classList.add('hidden');
+  if (state.mode === 'timed') startTimer();
+  generateQuestion();
+});
+
+document.getElementById('submitBtn').addEventListener('click', checkAnswer);
+document.getElementById('answerInput').addEventListener('keydown', e => { if (e.key === 'Enter') checkAnswer(); });
+document.getElementById('hintBtn').addEventListener('click', useHint);
+document.getElementById('skipBtn').addEventListener('click', skip);
+document.getElementById('restartBtn').addEventListener('click', () => {
+  clearInterval(state.timerInterval);
+  document.getElementById('resultScreen').classList.add('hidden');
+  document.getElementById('setupScreen').classList.remove('hidden');
+});
+</script>
+</body>
+</html>
